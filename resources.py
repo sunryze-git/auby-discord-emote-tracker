@@ -20,6 +20,7 @@ async def stats_generator(guild):
                 stats[row['emoji']] = []
             stats[row['emoji']].append(row['user'])
     return stats
+
 async def userstats_generator(guild, user_id):
     user_rows = db.search((User.user == user_id) & (User.guild == guild))
     stats = {}
@@ -28,6 +29,7 @@ async def userstats_generator(guild, user_id):
             stats[row['emoji']] = []
         stats[row['emoji']].append(row['user'])
     return stats
+
 async def index_emoji(guild, limit, bot):
     for channel in guild.text_channels:
         try:
@@ -38,6 +40,7 @@ async def index_emoji(guild, limit, bot):
         except Exception as e:
             print(e)
     print(f"Indexing finished for {guild.name}")
+
 async def handle_emoji(message):
     content = message.content
     guild_id = message.guild.id
