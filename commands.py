@@ -16,11 +16,13 @@ import os
 
 from resources import *
 
+# Load our databases into their reference names
 db = TinyDB(os.path.join(os.getcwd(), "db.json"))
 conf = TinyDB(os.path.join(os.getcwd(), "config.json"))
 
 User = Query()
 
+# General multipurpose cog for handling other commands
 class Cmds(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
@@ -51,6 +53,7 @@ class Cmds(commands.Cog):
         except Exception as e:
             print(e)
 
+# Seperate cog for handling statistics
 class StatsCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
@@ -128,6 +131,7 @@ class StatsCog(commands.Cog):
     async def stats_textify(self, stats):
         return "\n".join([f"{tup[0]} ({tup[1]})" for tup in stats if tup != None]), "\n".join(tup[2] for tup in stats if tup != None)
 
+# Add the cog classes to our bot - this function runs when commands.py is loaded by main.py
 async def setup(bot: commands.Bot):
     await bot.add_cog(Cmds(bot))
     await bot.add_cog(StatsCog(bot))
