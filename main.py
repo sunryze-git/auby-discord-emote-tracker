@@ -160,7 +160,7 @@ async def statistics(interaction: discord.Interaction, type: discord.app_command
 async def ping(interaction: discord.Interaction):
     ping_results = os.popen('ping -c1 1.1.1.1 | grep -E time').read()
     ping_results = re.findall('.*time=(.*\d)', ping_results)
-    await interaction.response.send_message(f"```{ping_results[0]} ms```")
+    await interaction.response.send_message(f"```The ping to 1.1.1.1 is {ping_results[0]} ms```")
 
 
 @bot.tree.command(name="snuggle")
