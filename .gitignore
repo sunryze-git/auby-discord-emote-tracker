@@ -2,3 +2,6 @@ config.json
 db.json 
 __pycache__/commands.cpython-310.pyc
 __pycache__/resources.cpython-310.pyc
+remind_db.json
+__pycache__/reminders.cpython-310.pyc
+__pycache__/main.cpython-310.pyc

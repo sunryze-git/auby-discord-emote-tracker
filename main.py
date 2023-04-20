@@ -1,13 +1,12 @@
 # Import Libraries
 import discord
-from discord.ext import commands
-
-from tinydb import TinyDB, Query
-from tinydb import where
-
 import os
 
-from resources import *
+from discord.ext import commands
+from tinydb import TinyDB, Query
+
+from resources import Tools
+from resources import Reminder
 
 #### SECRET TOKEN #####
 token = os.environ.get('TOKEN')
@@ -16,13 +15,11 @@ token = os.environ.get('TOKEN')
 # Setup our Intents
 intents = discord.Intents.default()
 intents.message_content = True
+bot = commands.Bot(command_prefix='$', intents=intents)
 
 db = TinyDB(os.path.join(os.getcwd(), "db.json"))
 conf = TinyDB(os.path.join(os.getcwd(), "config.json"))
-
 User = Query()
-
-bot = commands.Bot(command_prefix='$', intents=intents)
 
 latest_pk = ""
 
@@ -35,6 +32,9 @@ async def sync_tree():
 
 @bot.event
 async def on_ready():
+    global tools
+    global rc
+    
     await bot.load_extension('commands')
 
     print(f'We have logged in as {bot.user}')
@@ -45,6 +45,10 @@ async def on_ready():
             print(f"Guild with ID {guild.id} was not in the config database. Applying default configuration.")
             conf.insert({'guild': guild.id, 'logging': False, 'bots': False}) 
 
+    tools = Tools(bot=bot, db=db)
+    rc = Reminder(bot=bot)
+
+    print("Syncing Commands")
     await sync_tree()
 
 @bot.event
@@ -69,7 +73,7 @@ async def on_message(message):
         return
             
     #print(f"IN {message.guild.id} FROM {message.author}-{message.webhook_id}: {message.content}")
-    await handle_emoji(message = message)
+    await tools.process_emoji(message = message)
 
 @bot.event
 async def on_raw_message_delete(message):
@@ -89,16 +93,4 @@ async def reload(interaction: discord.Interaction):
     await interaction.response.send_message("Commands Reloaded", ephemeral=True)
     await sync_tree()
 
-# @bot.tree.command(name="run_command")
-# @app_commands.describe(command = "What Python-based command would you like me to run?")
-# async def run_command(interaction: discord.Integration, command: str):
-#     print("Command Attempted")
-#     if interaction.user.id != 229709025824997377:
-#         await interaction.response.send_message("Sorry! This command is reserved for developers!", ephemeral=True)
-#     try:
-#         command_output = await eval(command)
-#     except Exception as e:
-#         command_output = e
-#     await interaction.response.send_message(f" ```{command_output}``` ", ephemeral=True)
-    
 bot.run(token)

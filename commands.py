@@ -2,30 +2,60 @@
 import discord
 from discord.ext import commands
 from discord import app_commands
-
 from tinydb import TinyDB, Query
-from tinydb import where
-
 from pythonping import ping
-
 from asyncstdlib import map as amap
 from asyncstdlib import list as alist
+from datetime import timezone
 
+import datetime
+import parsedatetime as pdt
+import calendar
 import re
 import os
+import pytz
+import hashlib
 
-from resources import *
+from resources import Tools
+from resources import Reminder
 
 # Load our databases into their reference names
 db = TinyDB(os.path.join(os.getcwd(), "db.json"))
 conf = TinyDB(os.path.join(os.getcwd(), "config.json"))
-
+remind_db = TinyDB(os.path.join(os.getcwd(), "remind_db.json"))
 User = Query()
+
+#### SECRET TOKEN #####
+token = os.environ.get('TOKEN')
+#### ##### ###### #####
+
+# Setup our Intents
+intents = discord.Intents.default()
+intents.message_content = True
+bot = commands.Bot(command_prefix='$', intents=intents)
+
+tools = Tools(bot=bot, db=db)
+rc = Reminder(bot=bot)
 
 # General multipurpose cog for handling other commands
 class Cmds(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
+
+    # @app_commands.command(name="run_command")
+    # @app_commands.describe(command = "What Python-based command would you like me to run?")
+    # async def run_command(self, interaction: discord.Integration, command: str):
+    #     global reminder_cache
+    #     global reminder_list
+
+    #     print("Command Attempted")
+    #     if interaction.user.id != 229709025824997377:
+    #         await interaction.response.send_message("Sorry! This command is reserved for developers!", ephemeral=True)
+    #     try:
+    #         command_output = await eval(command)
+    #     except Exception as e:
+    #         command_output = e
+    #     await interaction.response.send_message(f" ```{command_output}``` ", ephemeral=False)
 
     @app_commands.command(name="index")
     @app_commands.describe(
@@ -33,7 +63,7 @@ class Cmds(commands.Cog):
     )
     async def index(self, interaction: discord.Interaction, history: int):
         await interaction.response.send_message(f"Hello, {interaction.user.mention}, I have started indexing. The index may take a while depending on the specified message history!", ephemeral=True)
-        await index_emoji(guild=interaction.guild, limit=history, bot = commands.Bot)
+        await tools.index_emoji(guild=interaction.guild, limit=history)
 
     @app_commands.command(name="ping")
     async def ping(self, interaction: discord.Interaction):
@@ -97,11 +127,11 @@ class StatsCog(commands.Cog):
  
     async def stats_init(self, type, interaction, sort_order):
         if type.value == 1:
-            stats = await userstats_generator(guild=interaction.guild.id, user_id = int(interaction.user.id))
+            stats = await tools.gen_usr_stats(guild_id=interaction.guild.id, user_id = int(interaction.user.id))
             stats_sorted = sorted(stats.items(), reverse=sort_order, key=lambda entry: len(entry[1]))
             return True, stats_sorted[:10]
         elif type.value == 2:
-            stats = await stats_generator(guild=interaction.guild.id)
+            stats = await tools.gen_srv_stats(guild_id=interaction.guild.id)
             stats_sorted = sorted(stats.items(), reverse=sort_order, key=lambda entry: len(entry[1]))
             return False, stats_sorted[:10]
 
@@ -132,7 +162,42 @@ class StatsCog(commands.Cog):
     async def stats_textify(self, stats):
         return "\n".join([f"{tup[0]} ({tup[1]})" for tup in stats if tup != None]), "\n".join(tup[2] for tup in stats if tup != None)
 
+# New Cog for handling reminders
+class Reminders(commands.Cog):
+    def __init__(self, bot):
+        self.bot = bot
+
+    @app_commands.command(name="remind", description="BETA: Reminds you something.")
+    @app_commands.describe(
+        name = "What do you want me to remind you for? (ex: pet a fox)",
+        date = "When do you want to be reminded? (most date formats work)"
+    )
+    async def remind(self, interaction: discord.Interaction, name: str, date: str):
+        cal = pdt.Calendar()
+        now = datetime.datetime.now(timezone.utc)
+        start_date = interaction.created_at
+        end_date = cal.parseDT(datetimeString=date, sourceTime=now, tzinfo=pytz.utc)[0]
+
+        if end_date > start_date:
+            await self.remind_set(user_id=interaction.user.id, channel_id=interaction.channel.id, start=start_date, end=end_date, name=name)
+            await interaction.response.send_message(f"<@{interaction.user.id}>, I will remind you <t:{int(calendar.timegm(end_date.utctimetuple()))}:R>: {name}")
+        else:
+            await interaction.response.send_message("That time is not valid!", ephemeral=True)
+
+    async def remind_set(self, user_id, channel_id, start, end, name):
+        print(f"Setting reminder for {user_id}, starting at {start}, ending at {end}, with reason: {name}")
+        data = str(user_id)+str(channel_id)+str(int(start.timestamp()))+str(int(end.timestamp()))+name
+        hashed = hashlib.blake2s(data.encode('utf-8'), digest_size=16)
+        remind_db.insert({"user": user_id, "channel": channel_id, "name": name, "start": start.timestamp(), "end": end.timestamp(), "id": hashed.hexdigest()})
+
+        if end.timestamp() - start.timestamp() < 300:
+            next_block = rc.main.next_iteration
+            if end < next_block:
+                print("This reminder will fall before the next block, and will not be detected. Manually adding it to the reminder list.")
+                await rc.inject(reminder={"user": user_id, "channel": channel_id, "name": name, "start": start.timestamp(), "end": end.timestamp(), "id": user_id+channel_id+start.timestamp()})
+
 # Add the cog classes to our bot - this function runs when commands.py is loaded by main.py
 async def setup(bot: commands.Bot):
     await bot.add_cog(Cmds(bot))
     await bot.add_cog(StatsCog(bot))
+    await bot.add_cog(Reminders(bot))
