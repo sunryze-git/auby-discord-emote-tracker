@@ -18,6 +18,7 @@ import hashlib
 
 from resources import Tools
 from resources import Reminder
+from resources import log
 
 # Load our databases into their reference names
 db = TinyDB(os.path.join(os.getcwd(), "db.json"))
@@ -48,7 +49,7 @@ class Cmds(commands.Cog):
     #     global reminder_cache
     #     global reminder_list
 
-    #     print("Command Attempted")
+    #     log.info("Command Attempted")
     #     if interaction.user.id != 229709025824997377:
     #         await interaction.response.send_message("Sorry! This command is reserved for developers!", ephemeral=True)
     #     try:
@@ -82,7 +83,7 @@ class Cmds(commands.Cog):
             if conf.contains(User.guild == interaction.guild_id):
                 conf.update({'logging': set_logging_state, 'bots': bot_logging, 'unicode': unicode_logging}, User.guild == interaction.guild_id)
         except Exception as e:
-            print(e)
+            log.warning(e)
 
 # Seperate cog for handling statistics
 class StatsCog(commands.Cog):
@@ -153,7 +154,7 @@ class StatsCog(commands.Cog):
                 top_user_name = f"{top_user.name}#{top_user.discriminator}"
             except Exception as e:
                 top_user_name = "unknown#0000"
-                print(e)
+                log.warning(e)
             return (emoji_object, emoji_count, top_user_name)
         
         result = await alist(amap(process_tuple, stats))
@@ -185,7 +186,7 @@ class Reminders(commands.Cog):
             await interaction.response.send_message("That time is not valid!", ephemeral=True)
 
     async def remind_set(self, user_id, channel_id, start, end, name):
-        print(f"Setting reminder for {user_id}, starting at {start}, ending at {end}, with reason: {name}")
+        log.info(f"Setting reminder for {user_id}, starting at {start}, ending at {end}, with reason: {name}")
         data = str(user_id)+str(channel_id)+str(int(start.timestamp()))+str(int(end.timestamp()))+name
         hashed = hashlib.blake2s(data.encode('utf-8'), digest_size=16)
         remind_db.insert({"user": user_id, "channel": channel_id, "name": name, "start": start.timestamp(), "end": end.timestamp(), "id": hashed.hexdigest()})
@@ -193,11 +194,35 @@ class Reminders(commands.Cog):
         if end.timestamp() - start.timestamp() < 300:
             next_block = rc.main.next_iteration
             if end < next_block:
-                print("This reminder will fall before the next block, and will not be detected. Manually adding it to the reminder list.")
-                await rc.inject(reminder={"user": user_id, "channel": channel_id, "name": name, "start": start.timestamp(), "end": end.timestamp(), "id": user_id+channel_id+start.timestamp()})
+                log.warning("This reminder will fall before the next block, and will not be detected. Manually adding it to the reminder list.")
+                await rc.inject(reminder={
+                    "user": user_id,
+                    "channel": channel_id,
+                    "name": name,
+                    "start": start.timestamp(),
+                    "end": end.timestamp(),
+                    "id": user_id+channel_id+start.timestamp()
+                })
+
+    @app_commands.command(name="remindlist", description="BETA: See a list of the reminders you have set.")
+    async def remindlist(self, interaction: discord.Interaction):
+        embed = discord.Embed(
+            color=discord.Color.orange(),
+            description="A list of your set reminders.",
+            title=f"Reminder list for {interaction.user.name}"
+        )
+        r_list = remind_db.search(User.id == interaction.user.id)
+
+        body1 = "Dummy Reminder"
+        body2 = "Dummy Due Date"
+
+        embed.add_field(name="REMINDERS", value=body1)
+        embed.insert_field_at(1,name="DUE DATE", value=body2)
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
 # Add the cog classes to our bot - this function runs when commands.py is loaded by main.py
 async def setup(bot: commands.Bot):
+    # sourcery skip: instance-method-first-arg-name
     await bot.add_cog(Cmds(bot))
     await bot.add_cog(StatsCog(bot))
     await bot.add_cog(Reminders(bot))

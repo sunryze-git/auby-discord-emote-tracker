@@ -1,12 +1,16 @@
 # Import Libraries
 import discord
 import os
+import logging
+import colorlog
 
 from discord.ext import commands
 from tinydb import TinyDB, Query
 
 from resources import Tools
 from resources import Reminder
+from resources import setup_logging
+from resources import log
 
 #### SECRET TOKEN #####
 token = os.environ.get('TOKEN')
@@ -23,42 +27,40 @@ User = Query()
 
 latest_pk = ""
 
+tools = Tools(bot=bot, db=db)
+
 async def sync_tree():
     try:
-        synced = await bot.tree.sync()
-        print(f"Synced {len(synced)} command(s)")
+        await bot.tree.sync()
+        log.info("Commands Synced")
     except Exception as e:
-        print(e)
+        log.warning(f"Failed to sync commands: {e}")
 
 @bot.event
 async def on_ready():
-    global tools
     global rc
-    
+
     await bot.load_extension('commands')
 
-    print(f'We have logged in as {bot.user}')
+    log.info(f'Bot Login Successful as {bot.user}')
     await bot.change_presence(activity=discord.Game(name="OMORI"))
 
     for guild in bot.guilds:
         if not conf.contains(User.guild == guild.id):
-            print(f"Guild with ID {guild.id} was not in the config database. Applying default configuration.")
+            log.info(f"Guild with ID {guild.id} was not in the config database. Applying default configuration.")
             conf.insert({'guild': guild.id, 'logging': False, 'bots': False}) 
 
-    tools = Tools(bot=bot, db=db)
     rc = Reminder(bot=bot)
-
-    print("Syncing Commands")
     await sync_tree()
 
 @bot.event
 async def on_guild_join(guild):
-    print(f"Bot has joined new server: {guild.name}")
+    log.info(f"Bot has joined new server: {guild.name}")
     conf.insert({'guild': guild.id, 'logging': False, 'bots': False}) 
 
 @bot.event
 async def on_guild_remove(guild):
-    print(f"Bot has been removed from server: {guild.name}")
+    log.info(f"Bot has been removed from server: {guild.name}")
     if conf.contains(User.guild == guild.id):
         conf.remove(User.guild == guild.id)
 
@@ -72,7 +74,7 @@ async def on_message(message):
         latest_pk = message.content
         return
             
-    #print(f"IN {message.guild.id} FROM {message.author}-{message.webhook_id}: {message.content}")
+    log.debug(f"IN {message.guild.id} FROM {message.author}-{message.webhook_id}: {message.content}")
     await tools.process_emoji(message = message)
 
 @bot.event
@@ -84,13 +86,13 @@ async def on_raw_message_delete(message):
     try:
         db.remove(User.message_id == message.message_id)
     except Exception as e:
-        print(e)
+        log.error(e)
 
 @bot.tree.command(name="reload")
 async def reload(interaction: discord.Interaction):
-    print("Reloading Commands!")
+    log.info("Reloading Commands!")
     await bot.reload_extension('commands')
     await interaction.response.send_message("Commands Reloaded", ephemeral=True)
     await sync_tree()
 
-bot.run(token)
+bot.run(token, root_logger=False)

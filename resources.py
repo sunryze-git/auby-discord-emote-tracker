@@ -5,6 +5,8 @@ import os
 import emoji
 import datetime
 import pytz
+import logging
+import colorlog
 
 from tinydb import TinyDB, Query
 from datetime import timezone
@@ -13,12 +15,32 @@ from discord.ext import tasks
 db = TinyDB(os.path.join(os.getcwd(), "db.json"))
 conf = TinyDB(os.path.join(os.getcwd(), "config.json"))
 remind_db = TinyDB(os.path.join(os.getcwd(), "remind_db.json"))
-
 query = Query()
+
+### INITIALIZE LOGGING ###
+def setup_logging(logging_level=logging.INFO):
+    log = logging.getLogger(__file__)
+    log.setLevel(logging_level)
+    format_str = '%(bold_black)s%(asctime)s %(log_color)s%(levelname)-8s %(purple)s%(filename)s%(reset)s %(message)s'
+    date_format = '%Y-%m-%d %H:%M:%S'
+    cformat = f'{format_str}'
+    colors={
+            'DEBUG': 'green',
+            'INFO': 'cyan',
+            'WARNING': 'yellow',
+            'ERROR': 'red',
+            'CRITICAL': 'red,bg_white',
+        }
+    formatter = colorlog.ColoredFormatter(cformat, date_format, log_colors=colors)
+    stream_handler = logging.StreamHandler()
+    stream_handler.setFormatter(formatter)
+    log.addHandler(stream_handler)
+    return log
+log = setup_logging(logging_level=logging.DEBUG)
 
 #### TOOLS ####
 class Tools():
-    def __init__(self, bot, db):
+    def __init__(self, bot=discord.Client, db=None):
         self.bot = bot
         self.db = db
         
@@ -42,13 +64,13 @@ class Tools():
     async def index_emoji(self, guild, limit):
         for channel in guild.text_channels:
             try:
-                print(guild.name, channel.name)
+                log.debug(guild.name, channel.name)
                 async for message in channel.history(limit=limit):
                     if message.author != self.bot.user:
                         await self.process_emoji(message = message)
             except Exception as e:
-                print(e)
-        print(f"Indexing finished for {guild.name}")
+                log.error(e)
+        log.debug(f"Indexing finished for {guild.name}")
 
     async def process_emoji(self, message):
         content = message.content
@@ -92,7 +114,6 @@ class Reminder():
         self.cache = []
         self.rlist = []
         self.main.start()
-        self.get_info.start()
         self.db = TinyDB(os.path.join(os.getcwd(), "remind_db.json"))
 
     def in_range(self, timestamp, target):
@@ -104,7 +125,7 @@ class Reminder():
         self.list = []
 
         # Set time buffer to be within the next 5 minutes from now
-        print("Checking for reminders within the next 300 seconds.")
+        log.info("Checking for reminders within the next 300 seconds.")
         now = datetime.datetime.now(timezone.utc)
         buffer = now+datetime.timedelta(seconds=300)
 
@@ -113,7 +134,7 @@ class Reminder():
 
         # Handle reminders that are in the past
         if len(self.db.search(query.end < now.timestamp())):
-            print("Found reminders in the past.")
+            log.warning("Found reminders in the past.")
             await self.handle_old_reminders(db=self.db, now=now)
 
         # Handle found reminders within the next 5 minutes, sync the queue
@@ -125,17 +146,17 @@ class Reminder():
     async def r_queue(self):
         now = round(datetime.datetime.now(tz=pytz.utc).timestamp(),1)
         r = self.db.search(query.end.test(lambda x: self.in_range(x, now)))[0]
-        print(f"Reminder time has been reached for {r}.")
+        log.debug(f"Reminder time has been reached for {r}.")
         await self.send_reminder(r=r)
 
     async def send_reminder(self, r):
-        print("Sending Reminder to User!")
+        log.debug("Sending Reminder to User!")
         channel = await self.bot.fetch_channel(int(r['channel']))
         try:
             await channel.send(f"<@{r['user']}>, <t:{int(r['end'])}:R>: {r['name']}")
             self.db.remove(query.id == r['id'])
         except Exception as e:
-            print(e)
+            log.error(e)
 
     async def handle_old_reminders(self, db, now):
         past_reminders = db.search(query.end < now.timestamp())
@@ -143,9 +164,9 @@ class Reminder():
             await self.send_reminder(r=r)
 
     async def handle_new_reminders(self):
-        print(f"There are {len(self.rlist)} reminders within the next 5 minutes. Adding them to the reminder cache.")
+        log.debug(f"There are {len(self.rlist)} reminders within the next 5 minutes. Adding them to the reminder cache.")
         for r in self.rlist:
-            print(f"Appending timer named {r['name']}, due {datetime.datetime.fromtimestamp(r['end'], tz=pytz.utc)}")
+            log.debug(f"Appending timer named {r['name']}, due {datetime.datetime.fromtimestamp(r['end'], tz=pytz.utc)}")
             self.cache.append(datetime.datetime.fromtimestamp(r["end"], tz=pytz.utc).time())
 
     async def sync_queue(self):
@@ -153,11 +174,11 @@ class Reminder():
         self.r_queue.start()
     
     async def inject(self, reminder):
-        print(f"Items before the append: {self.cache} \n{self.rlist}")
+        log.debug(f"Items before the append: {self.cache} {self.rlist}")
         time = datetime.datetime.fromtimestamp(reminder['end'], tz=pytz.utc).time()
         self.cache.append(time)
         self.rlist.append(reminder)
-        print(f"I have appended the items to the lists. The new lists are: {self.cache} \n{self.rlist}")
+        log.debug(f"I have appended the items to the lists. The new lists are: {self.cache} {self.rlist}")
         self.main.stop()
         self.main.change_interval(time=time)
         self.main.restart()
