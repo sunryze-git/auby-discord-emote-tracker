@@ -16,8 +16,8 @@ import os
 import pytz
 import hashlib
 
-from resources import Tools
-from resources import Reminder
+from resources.tools import Tools
+from resources.reminder import Reminder
 from resources import log
 
 # Load our databases into their reference names

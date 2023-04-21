@@ -1,14 +1,16 @@
-# Import Libraries
+### IMPORT LIBRARIES
 import discord
 import os
 
 from discord.ext import commands
 from tinydb import TinyDB, Query
 
-from resources import Tools
-from resources import Reminder
-from resources import setup_logging
+from resources.tools import Tools
+from resources.reminder import Reminder
+from resources.emoji import EmojiHandler
 from resources import log
+
+processemote = EmojiHandler()
 
 #### SECRET TOKEN #####
 token = os.environ.get('TOKEN')
@@ -41,10 +43,7 @@ async def sync_tree():
 # Function that runs when the bot is loaded
 @bot.event
 async def on_ready():
-    global rc
-
     await bot.load_extension('commands')
-    #await bot.load_extension('resources')
 
     log.info(f'Bot Login Successful as {bot.user}')
     await bot.change_presence(activity=discord.Game(name="OMORI"))
@@ -81,7 +80,7 @@ async def on_message(message):
         return
             
     log.debug(f"IN {message.guild.id} FROM {message.author}-{message.webhook_id}: {message.content}")
-    await tools.process_emoji(message = message)
+    await processemote.process(message=message)
 
 # Runs when the bot detects a message deletion, regardless if it is in the cache or not
 @bot.event
