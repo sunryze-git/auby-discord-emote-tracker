@@ -14,7 +14,7 @@ query = Query()
 
 #### REMINDER SYSTEM ####
 class Reminder():
-    def __init__(self, bot):
+    def __init__(self, bot: discord.Client):
         self.bot = bot
         self.db = TinyDB(os.path.join(os.getcwd(), "remind_db.json"))
         self.next_due = None
@@ -27,12 +27,16 @@ class Reminder():
 
     async def send_reminder(self, r):
         log.debug("Sending Reminder to User!")
-        channel = await self.bot.fetch_channel(int(r['channel']))
         try:
+            channel = await self.bot.fetch_channel(int(r['channel']))
             await channel.send(f"<@{r['user']}>, <t:{int(r['end'])}:R>: {r['name']}")
             self.db.remove(query.id == r['id'])
-        except discord.Forbidden:
-            log.debug(f"Error sending reminder with ID {r['id']} due to the bot not having permissions to send messages. (TODO: Redirect reminder to the users DMs.)")
+        except (discord.Forbidden, discord.NotFound):
+            log.debug(f"Error sending reminder with ID {r['id']} due to the bot not having permissions to send messages, or the channel doesn't exist. Attempting to send to DM with user.")
+            user = await self.bot.fetch_user(int(r['user']))
+            dm_channel = await user.create_dm()
+            await dm_channel.send(f"<@{r['user']}> I couldn't send in the channel you requested, <t:{int(r['end'])}:R>: {r['name']}")
+            self.db.remove(query.id == r['id'])
         except Exception as e:
             log.exception(f"An error occurred while trying to send reminder with ID {r['id']}.", exc_info=e)
 
