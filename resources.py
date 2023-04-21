@@ -7,11 +7,13 @@ import datetime
 import pytz
 import logging
 import colorlog
+import asyncio
+import uuid
 
-from tinydb import TinyDB, Query
+from tinydb import TinyDB, Query, where
 from datetime import timezone
-from discord.ext import tasks
 
+# Setup our databases
 db = TinyDB(os.path.join(os.getcwd(), "db.json"))
 conf = TinyDB(os.path.join(os.getcwd(), "config.json"))
 remind_db = TinyDB(os.path.join(os.getcwd(), "remind_db.json"))
@@ -111,43 +113,14 @@ class Tools():
 class Reminder():
     def __init__(self, bot):
         self.bot = bot
-        self.cache = []
-        self.rlist = []
-        self.main.start()
         self.db = TinyDB(os.path.join(os.getcwd(), "remind_db.json"))
+        self.next_due = None
+        self.task = None
+
+        asyncio.ensure_future(self.start())
 
     def in_range(self, timestamp, target):
         return abs(timestamp - target) <= 1
-
-    @tasks.loop(seconds=300)
-    async def main(self):
-        self.cache = []
-        self.list = []
-
-        # Set time buffer to be within the next 5 minutes from now
-        log.info("Checking for reminders within the next 300 seconds.")
-        now = datetime.datetime.now(timezone.utc)
-        buffer = now+datetime.timedelta(seconds=300)
-
-        # Get a list of reminders within the next 5 minutes
-        self.rlist = self.db.search((query.end < buffer.timestamp()) & (query.end > now.timestamp()))
-
-        # Handle reminders that are in the past
-        if len(self.db.search(query.end < now.timestamp())):
-            log.warning("Found reminders in the past.")
-            await self.handle_old_reminders(db=self.db, now=now)
-
-        # Handle found reminders within the next 5 minutes, sync the queue
-        if len(self.rlist) > 0:
-            await self.handle_new_reminders()
-            await self.sync_queue()
-
-    @tasks.loop(time=[datetime.datetime.now().time()])
-    async def r_queue(self):
-        now = round(datetime.datetime.now(tz=pytz.utc).timestamp(),1)
-        r = self.db.search(query.end.test(lambda x: self.in_range(x, now)))[0]
-        log.debug(f"Reminder time has been reached for {r}.")
-        await self.send_reminder(r=r)
 
     async def send_reminder(self, r):
         log.debug("Sending Reminder to User!")
@@ -164,27 +137,45 @@ class Reminder():
             await self.send_reminder(r=r)
 
     async def handle_new_reminders(self):
-        log.debug(f"There are {len(self.rlist)} reminders within the next 5 minutes. Adding them to the reminder cache.")
-        for r in self.rlist:
-            log.debug(f"Appending timer named {r['name']}, due {datetime.datetime.fromtimestamp(r['end'], tz=pytz.utc)}")
-            self.cache.append(datetime.datetime.fromtimestamp(r["end"], tz=pytz.utc).time())
-
-    async def sync_queue(self):
-        self.r_queue.change_interval(time=self.cache)
-        self.r_queue.start()
+        log.debug(f"There are {len(self.db)} reminders due.")
+        now = datetime.datetime.now(timezone.utc)
+        immediate_reminders = self.db.search(query.end <= now.timestamp())
+        for r in immediate_reminders:
+            await self.send_reminder(r=r)
+            self.db.remove(query.id == r['id'])
+        future_reminders = self.db.search(query.end > now.timestamp())
+        future_reminders.sort(key=lambda x: x["end"])
+        if future_reminders:
+            self.next_due = datetime.datetime.fromtimestamp(future_reminders[0]["end"], tz=pytz.utc)
+        for r in future_reminders:
+            if r["end"] <= now.timestamp():
+                await self.send_reminder(r=r)
+                self.db.remove(query.id == r['id'])
+            else:
+                break
+    
+    async def schedule_next_reminder(self):
+        if self.next_due is None:
+            return
+        delta = self.next_due - datetime.datetime.now(timezone.utc)
+        seconds_until_due = max(delta.total_seconds(), 0)
+        log.debug(f"Next reminder is due in {seconds_until_due} seconds.")
+        await asyncio.sleep(seconds_until_due)
+        self.task = asyncio.create_task(self.handle_new_reminders())
     
     async def inject(self, reminder):
-        log.debug(f"Items before the append: {self.cache} {self.rlist}")
-        time = datetime.datetime.fromtimestamp(reminder['end'], tz=pytz.utc).time()
-        self.cache.append(time)
-        self.rlist.append(reminder)
-        log.debug(f"I have appended the items to the lists. The new lists are: {self.cache} {self.rlist}")
-        self.main.stop()
-        self.main.change_interval(time=time)
-        self.main.restart()
+        log.debug(f"Reminder {reminder['name']} added to queue.")
+        self.db.insert(reminder)
+        if self.task is not None and not self.task.done():
+            self.task.cancel()
+        await self.handle_new_reminders()
+        await self.schedule_next_reminder()
 
-    async def get_nextiteration(self):
-        return self.main.next_iteration
+    async def start(self):
+        await self.handle_old_reminders(db=self.db, now=datetime.datetime.now(timezone.utc))
+        await self.handle_new_reminders()
+        await self.schedule_next_reminder()
 
-async def Init_Class(bot):
-    return Reminder(bot=bot)
+    async def delete_reminder(self, id):
+        self.db.remove(query.id == str(id))
+        asyncio.ensure_future(self.start())

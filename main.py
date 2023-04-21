@@ -1,8 +1,6 @@
 # Import Libraries
 import discord
 import os
-import logging
-import colorlog
 
 from discord.ext import commands
 from tinydb import TinyDB, Query
@@ -21,14 +19,18 @@ intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix='$', intents=intents)
 
+# Setup the databases
 db = TinyDB(os.path.join(os.getcwd(), "db.json"))
 conf = TinyDB(os.path.join(os.getcwd(), "config.json"))
 User = Query()
 
+# Define a global variable which stores the latest PluralKit-detected message
 latest_pk = ""
 
+# Initialize our Tools class
 tools = Tools(bot=bot, db=db)
 
+# Sync Commands with Discord
 async def sync_tree():
     try:
         await bot.tree.sync()
@@ -36,11 +38,13 @@ async def sync_tree():
     except Exception as e:
         log.warning(f"Failed to sync commands: {e}")
 
+# Function that runs when the bot is loaded
 @bot.event
 async def on_ready():
     global rc
 
     await bot.load_extension('commands')
+    #await bot.load_extension('resources')
 
     log.info(f'Bot Login Successful as {bot.user}')
     await bot.change_presence(activity=discord.Game(name="OMORI"))
@@ -50,20 +54,22 @@ async def on_ready():
             log.info(f"Guild with ID {guild.id} was not in the config database. Applying default configuration.")
             conf.insert({'guild': guild.id, 'logging': False, 'bots': False}) 
 
-    rc = Reminder(bot=bot)
     await sync_tree()
 
+# Runs when the bot detects a new guild
 @bot.event
 async def on_guild_join(guild):
     log.info(f"Bot has joined new server: {guild.name}")
     conf.insert({'guild': guild.id, 'logging': False, 'bots': False}) 
 
+# Runs when the bot detects a removal from a guild
 @bot.event
 async def on_guild_remove(guild):
     log.info(f"Bot has been removed from server: {guild.name}")
     if conf.contains(User.guild == guild.id):
         conf.remove(User.guild == guild.id)
 
+# Runs when the bot detects a new message
 @bot.event
 async def on_message(message):
     global latest_pk
@@ -77,6 +83,7 @@ async def on_message(message):
     log.debug(f"IN {message.guild.id} FROM {message.author}-{message.webhook_id}: {message.content}")
     await tools.process_emoji(message = message)
 
+# Runs when the bot detects a message deletion, regardless if it is in the cache or not
 @bot.event
 async def on_raw_message_delete(message):
     if message.cached_message is not None:
@@ -88,11 +95,15 @@ async def on_raw_message_delete(message):
     except Exception as e:
         log.error(e)
 
+# Command which reloads the commands module, WIP: reload resources
 @bot.tree.command(name="reload")
 async def reload(interaction: discord.Interaction):
+    global rc
     log.info("Reloading Commands!")
     await bot.reload_extension('commands')
-    await interaction.response.send_message("Commands Reloaded", ephemeral=True)
+    from commands import rc
+    await interaction.response.send_message("Bot has been reloaded", ephemeral=True)
     await sync_tree()
 
+# Starts the bot
 bot.run(token, root_logger=False)

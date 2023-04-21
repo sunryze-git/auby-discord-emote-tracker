@@ -35,8 +35,8 @@ intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix='$', intents=intents)
 
+# Initialize our Tools and Reminders class
 tools = Tools(bot=bot, db=db)
-rc = Reminder(bot=bot)
 
 # General multipurpose cog for handling other commands
 class Cmds(commands.Cog):
@@ -167,6 +167,7 @@ class StatsCog(commands.Cog):
 class Reminders(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
+        self.reminder = Reminder(bot)
 
     @app_commands.command(name="remind", description="BETA: Reminds you something.")
     @app_commands.describe(
@@ -180,29 +181,12 @@ class Reminders(commands.Cog):
         end_date = cal.parseDT(datetimeString=date, sourceTime=now, tzinfo=pytz.utc)[0]
 
         if end_date > start_date:
-            await self.remind_set(user_id=interaction.user.id, channel_id=interaction.channel.id, start=start_date, end=end_date, name=name)
             await interaction.response.send_message(f"<@{interaction.user.id}>, I will remind you <t:{int(calendar.timegm(end_date.utctimetuple()))}:R>: {name}")
+            data = str(interaction.user.id)+str(interaction.channel.id)+str(int(start_date.timestamp()))+str(int(end_date.timestamp()))+name
+            hashed = hashlib.blake2s(data.encode('utf-8'), digest_size=16)
+            await self.reminder.inject({"user": interaction.user.id, "channel": interaction.channel.id, "name": name, "start": start_date.timestamp(), "end": end_date.timestamp(), "id": hashed.hexdigest()})
         else:
             await interaction.response.send_message("That time is not valid!", ephemeral=True)
-
-    async def remind_set(self, user_id, channel_id, start, end, name):
-        log.info(f"Setting reminder for {user_id}, starting at {start}, ending at {end}, with reason: {name}")
-        data = str(user_id)+str(channel_id)+str(int(start.timestamp()))+str(int(end.timestamp()))+name
-        hashed = hashlib.blake2s(data.encode('utf-8'), digest_size=16)
-        remind_db.insert({"user": user_id, "channel": channel_id, "name": name, "start": start.timestamp(), "end": end.timestamp(), "id": hashed.hexdigest()})
-
-        if end.timestamp() - start.timestamp() < 300:
-            next_block = rc.main.next_iteration
-            if end < next_block:
-                log.warning("This reminder will fall before the next block, and will not be detected. Manually adding it to the reminder list.")
-                await rc.inject(reminder={
-                    "user": user_id,
-                    "channel": channel_id,
-                    "name": name,
-                    "start": start.timestamp(),
-                    "end": end.timestamp(),
-                    "id": user_id+channel_id+start.timestamp()
-                })
 
     @app_commands.command(name="remindlist", description="BETA: See a list of the reminders you have set.")
     async def remindlist(self, interaction: discord.Interaction):
@@ -211,14 +195,25 @@ class Reminders(commands.Cog):
             description="A list of your set reminders.",
             title=f"Reminder list for {interaction.user.name}"
         )
-        r_list = remind_db.search(User.id == interaction.user.id)
+        r_list = remind_db.search(User.user == interaction.user.id)
+        r_list.sort(key=lambda r: r["end"], reverse=True)
 
-        body1 = "Dummy Reminder"
-        body2 = "Dummy Due Date"
+        body1 = "\n".join(str(r["id"]) for r in r_list)
+        body2 = "\n".join(r["name"] for r in r_list)
+        body3 = "\n".join(f"<t:{int(r['end'])}:R>" for r in r_list)
 
-        embed.add_field(name="REMINDERS", value=body1)
-        embed.insert_field_at(1,name="DUE DATE", value=body2)
+        embed.add_field(name="Reminder ID", value=body1)
+        embed.insert_field_at(1,name="Name", value=body2)
+        embed.insert_field_at(2,name="Due Date", value=body3)
         await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    # @app_commands.command(name="deletereminder", description="BETA: Delete a reminder you have set.")
+    # @app_commands.describe(
+    #     id = "What is the ID of the reminder?"
+    # )
+    # async def deletereminder(self, interaction: discord.Interaction, id: str):
+    #     await self.reminder.delete_reminder(id)
+    #     await interaction.response.send_message(f"I have deleted your reminder with ID: {id}.", ephemeral=True)
 
 # Add the cog classes to our bot - this function runs when commands.py is loaded by main.py
 async def setup(bot: commands.Bot):
