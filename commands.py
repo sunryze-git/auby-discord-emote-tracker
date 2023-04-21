@@ -196,7 +196,7 @@ class Reminders(commands.Cog):
             title=f"Reminder list for {interaction.user.name}"
         )
         r_list = remind_db.search(User.user == interaction.user.id)
-        r_list.sort(key=lambda r: r["end"], reverse=True)
+        r_list.sort(key=lambda r: r["end"], reverse=False)
 
         body1 = "\n".join(str(r["id"]) for r in r_list)
         body2 = "\n".join(r["name"] for r in r_list)
@@ -207,13 +207,13 @@ class Reminders(commands.Cog):
         embed.insert_field_at(2,name="Due Date", value=body3)
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
-    # @app_commands.command(name="deletereminder", description="BETA: Delete a reminder you have set.")
-    # @app_commands.describe(
-    #     id = "What is the ID of the reminder?"
-    # )
-    # async def deletereminder(self, interaction: discord.Interaction, id: str):
-    #     await self.reminder.delete_reminder(id)
-    #     await interaction.response.send_message(f"I have deleted your reminder with ID: {id}.", ephemeral=True)
+    @app_commands.command(name="deletereminder", description="BETA: Delete a reminder you have set.")
+    @app_commands.describe(
+        id = "What is the ID of the reminder?"
+    )
+    async def deletereminder(self, interaction: discord.Interaction, id: str):
+        await interaction.response.send_message(f"I have deleted your reminder with ID: ``{id}``.", ephemeral=True)
+        await self.reminder.delete_reminder(id)
 
 # Add the cog classes to our bot - this function runs when commands.py is loaded by main.py
 async def setup(bot: commands.Bot):

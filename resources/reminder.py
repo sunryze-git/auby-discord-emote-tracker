@@ -82,5 +82,11 @@ class Reminder():
         await self.schedule_next_reminder()
 
     async def delete_reminder(self, id):
+        next_reminder = self.db.search(query.end > datetime.datetime.now(timezone.utc).timestamp())[0]
+        is_next_due = next_reminder['id'] == id if next_reminder else False
         self.db.remove(query.id == str(id))
-        asyncio.ensure_future(self.start())
+        await self.handle_new_reminders()
+        if is_next_due:
+            if self.task is not None and not self.task.done():
+                self.task.cancel()
+            await self.schedule_next_reminder()
