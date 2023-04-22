@@ -1,5 +1,10 @@
 config.json 
 db.json 
+<<<<<<< HEAD
 /resources/__pycache__/
 __pycache__/
 remind_db.json
+=======
+__pycache__/
+remind_db.json
+>>>>>>> b404daa17ba311a499a4ce587ddc33dc78f3aa0d
