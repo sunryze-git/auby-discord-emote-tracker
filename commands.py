@@ -1,6 +1,7 @@
 # Import Libraries
 import discord
 from discord.ext import commands
+from discord.ext import tasks
 from discord import app_commands
 from tinydb import TinyDB, Query
 from pythonping import ping
@@ -109,17 +110,18 @@ class StatsCog(commands.Cog):
         discord.app_commands.Choice(name='Custom and Unicode', value=2)
     ])
     async def statistics(self, interaction: discord.Interaction, type: discord.app_commands.Choice[int], sort_order: discord.app_commands.Choice[int], emoji_types: discord.app_commands.Choice[int]):
+        sort_order = sort_order.value != 1
+
+        ephemeral, stats, g_logging = await self.stats_init(type=type, interaction=interaction, sort_order=sort_order)
+        stats_converted = await self.stats_convert(stats=stats, interaction=interaction, emoji_type=emoji_types.value)
+        emoji_list, user_list = await self.stats_textify(stats=stats_converted)
+
         embed = discord.Embed(
             color=discord.Color.blue(),
-            description="Below are the current stats of your server.",
+            description=f"Below are the current stats of your server.\nGUILD LOGGING: **{str(g_logging)}**",
             title=f"Statistics in {interaction.guild.name}"
         )
         embed.set_thumbnail(url="https://media.tenor.com/wmVr2zAeufoAAAAC/omori-aubrey.gif")
-        sort_order = sort_order.value != 1
-
-        ephemeral, stats = await self.stats_init(type=type, interaction=interaction, sort_order=sort_order)
-        stats_converted = await self.stats_convert(stats=stats, interaction=interaction, emoji_type=emoji_types.value)
-        emoji_list, user_list = await self.stats_textify(stats=stats_converted)
 
         embed.set_footer(text="This data only includes indexed messages. Non-indexed messages will not appear.")
         embed.add_field(name="POPULARITY BY TOTAL", value=emoji_list)
@@ -134,7 +136,8 @@ class StatsCog(commands.Cog):
         elif type.value == 2:
             stats = await tools.gen_srv_stats(guild_id=interaction.guild.id)
             stats_sorted = sorted(stats.items(), reverse=sort_order, key=lambda entry: len(entry[1]))
-            return False, stats_sorted[:10]
+            guild_logging = bool(conf.search(User.guild == interaction.guild.id)["logging"])
+            return False, stats_sorted[:10], guild_logging
 
     async def stats_convert(self, stats, interaction, emoji_type):
         async def process_tuple(tup):
@@ -142,7 +145,11 @@ class StatsCog(commands.Cog):
                 return
 
             if isinstance(tup[0], int):
-                emoji_object = await interaction.guild.fetch_emoji(tup[0])
+                try:
+                    emoji_object = await interaction.guild.fetch_emoji(tup[0])
+                except (discord.NotFound):
+                    log.error(f"Error fetching emoji with ID {tup[0]}.")
+                    emoji_object = "Error Fetching"
             else:
                 emoji_object = tup[0]
                 
@@ -215,9 +222,26 @@ class Reminders(commands.Cog):
         await interaction.response.send_message(f"I have deleted your reminder with ID: ``{id}``.", ephemeral=True)
         await self.reminder.delete_reminder(id)
 
+class Birthday(commands.Cog):
+    def __init__(self, bot: discord.Client):
+        self.bot = bot
+        self.bday.start()
+
+    @tasks.loop(seconds=60)
+    async def bday(self):
+        now = datetime.datetime.now(tz=pytz.utc)
+        channel = await self.bot.fetch_channel(967074262097739836)
+        guild = await self.bot.fetch_guild(967074190379323423)
+        age = now - guild.created_at
+        one_year = datetime.timedelta(minutes=525600)
+        if age >=one_year:
+            await channel.send("HAPPY BIRTHDAY SNOWGLOBE!!!")
+        log.debug(f"CURRENT TIME: {now.strftime('%Y-%m-%d %H:%M:%S')} | BIRTHDAY:{guild.created_at.strftime('%Y-%m-%d %H:%M:%S')} | AGE: {age}")
+
 # Add the cog classes to our bot - this function runs when commands.py is loaded by main.py
 async def setup(bot: commands.Bot):
     # sourcery skip: instance-method-first-arg-name
     await bot.add_cog(Cmds(bot))
     await bot.add_cog(StatsCog(bot))
     await bot.add_cog(Reminders(bot))
+    await bot.add_cog(Birthday(bot))

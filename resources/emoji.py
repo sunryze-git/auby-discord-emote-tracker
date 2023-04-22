@@ -58,7 +58,7 @@ class EmojiHandler():
     
     def _should_ignore_message(self, message):
         message_id = message.id
-        return len(self.db.search(Query().message_id == message_id)) >= 1
+        return len(self.db.search(Query().message_id == message_id)) > 0
 
     async def _process_custom_emojis(self, emoji_id, emoji_name, message):
         for counter, i in enumerate(emoji_id):
