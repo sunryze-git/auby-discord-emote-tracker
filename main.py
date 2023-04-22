@@ -80,7 +80,7 @@ async def on_message(message):
         latest_pk = message.content
         return
             
-    log.debug(f"IN {message.guild.id} FROM {message.author}-{message.webhook_id}: {message.content}")
+    #log.debug(f"IN {message.guild.id} FROM {message.author}-{message.webhook_id}: {message.content}")
     await processemote.process(message=message)
 
 # Runs when the bot detects a message deletion, regardless if it is in the cache or not

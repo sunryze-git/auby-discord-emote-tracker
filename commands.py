@@ -222,26 +222,9 @@ class Reminders(commands.Cog):
         await interaction.response.send_message(f"I have deleted your reminder with ID: ``{id}``.", ephemeral=True)
         await self.reminder.delete_reminder(id)
 
-class Birthday(commands.Cog):
-    def __init__(self, bot: discord.Client):
-        self.bot = bot
-        self.bday.start()
-
-    @tasks.loop(seconds=60)
-    async def bday(self):
-        now = datetime.datetime.now(tz=pytz.utc)
-        channel = await self.bot.fetch_channel(967074262097739836)
-        guild = await self.bot.fetch_guild(967074190379323423)
-        age = now - guild.created_at
-        one_year = datetime.timedelta(minutes=525600)
-        if age >=one_year:
-            await channel.send("HAPPY BIRTHDAY SNOWGLOBE!!!")
-        log.debug(f"CURRENT TIME: {now.strftime('%Y-%m-%d %H:%M:%S')} | BIRTHDAY:{guild.created_at.strftime('%Y-%m-%d %H:%M:%S')} | AGE: {age}")
-
 # Add the cog classes to our bot - this function runs when commands.py is loaded by main.py
 async def setup(bot: commands.Bot):
     # sourcery skip: instance-method-first-arg-name
     await bot.add_cog(Cmds(bot))
     await bot.add_cog(StatsCog(bot))
     await bot.add_cog(Reminders(bot))
-    await bot.add_cog(Birthday(bot))
