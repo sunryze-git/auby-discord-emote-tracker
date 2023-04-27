@@ -54,6 +54,8 @@ async def on_ready():
             log.info(f"Guild with ID {guild.id} was not in the config database. Applying default configuration.")
             conf.insert({'guild': guild.id, 'logging': False, 'bots': False}) 
 
+    
+
     await sync_tree()
 
 # Runs when the bot detects a new guild
@@ -101,7 +103,6 @@ async def reload(interaction: discord.Interaction):
     global rc
     log.info("Reloading Commands!")
     await bot.reload_extension('commands')
-    from commands import rc
     await interaction.response.send_message("Bot has been reloaded", ephemeral=True)
     await sync_tree()
 

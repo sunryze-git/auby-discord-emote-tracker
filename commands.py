@@ -15,10 +15,9 @@ import calendar
 import re
 import os
 import pytz
-import hashlib
 
 from resources.tools import Tools
-from resources.reminder import Reminder
+from resources.reminder import nReminder
 from resources import log
 
 # Load our databases into their reference names
@@ -132,11 +131,12 @@ class StatsCog(commands.Cog):
         if type.value == 1:
             stats = await tools.gen_usr_stats(guild_id=interaction.guild.id, user_id = int(interaction.user.id))
             stats_sorted = sorted(stats.items(), reverse=sort_order, key=lambda entry: len(entry[1]))
-            return True, stats_sorted[:10]
+            guild_logging = bool(conf.get(User.guild == interaction.guild.id)['logging'])
+            return True, stats_sorted[:10], guild_logging
         elif type.value == 2:
             stats = await tools.gen_srv_stats(guild_id=interaction.guild.id)
             stats_sorted = sorted(stats.items(), reverse=sort_order, key=lambda entry: len(entry[1]))
-            guild_logging = bool(conf.search(User.guild == interaction.guild.id)["logging"])
+            guild_logging = bool(conf.get(User.guild == interaction.guild.id)['logging'])
             return False, stats_sorted[:10], guild_logging
 
     async def stats_convert(self, stats, interaction, emoji_type):
@@ -174,7 +174,7 @@ class StatsCog(commands.Cog):
 class Reminders(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        self.reminder = Reminder(bot)
+
 
     @app_commands.command(name="remind", description="BETA: Reminds you something.")
     @app_commands.describe(
@@ -188,10 +188,8 @@ class Reminders(commands.Cog):
         end_date = cal.parseDT(datetimeString=date, sourceTime=now, tzinfo=pytz.utc)[0]
 
         if end_date > start_date:
+            rem = 
             await interaction.response.send_message(f"<@{interaction.user.id}>, I will remind you <t:{int(calendar.timegm(end_date.utctimetuple()))}:R>: {name}")
-            data = str(interaction.user.id)+str(interaction.channel.id)+str(int(start_date.timestamp()))+str(int(end_date.timestamp()))+name
-            hashed = hashlib.blake2s(data.encode('utf-8'), digest_size=16)
-            await self.reminder.inject({"user": interaction.user.id, "channel": interaction.channel.id, "name": name, "start": start_date.timestamp(), "end": end_date.timestamp(), "id": hashed.hexdigest()})
         else:
             await interaction.response.send_message("That time is not valid!", ephemeral=True)
 
@@ -220,7 +218,7 @@ class Reminders(commands.Cog):
     )
     async def deletereminder(self, interaction: discord.Interaction, id: str):
         await interaction.response.send_message(f"I have deleted your reminder with ID: ``{id}``.", ephemeral=True)
-        await self.reminder.delete_reminder(id)
+        await self.reminder.rem
 
 # Add the cog classes to our bot - this function runs when commands.py is loaded by main.py
 async def setup(bot: commands.Bot):
