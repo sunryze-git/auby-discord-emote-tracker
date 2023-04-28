@@ -1,13 +1,12 @@
 # Import Libraries
 import discord
 from discord.ext import commands
-from discord.ext import tasks
 from discord import app_commands
-from tinydb import TinyDB, Query
 from pythonping import ping
 from asyncstdlib import map as amap
 from asyncstdlib import list as alist
 from datetime import timezone
+from tinydb import TinyDB, where, Query
 
 import datetime
 import parsedatetime as pdt
@@ -15,48 +14,14 @@ import calendar
 import re
 import os
 import pytz
-
-from resources.tools import Tools
-from resources.reminder import nReminder
-from resources import log
-
-# Load our databases into their reference names
-db = TinyDB(os.path.join(os.getcwd(), "db.json"))
-conf = TinyDB(os.path.join(os.getcwd(), "config.json"))
-remind_db = TinyDB(os.path.join(os.getcwd(), "remind_db.json"))
-User = Query()
-
-#### SECRET TOKEN #####
-token = os.environ.get('TOKEN')
-#### ##### ###### #####
-
-# Setup our Intents
-intents = discord.Intents.default()
-intents.message_content = True
-bot = commands.Bot(command_prefix='$', intents=intents)
-
-# Initialize our Tools and Reminders class
-tools = Tools(bot=bot, db=db)
+import logging
+log = logging.getLogger()
 
 # General multipurpose cog for handling other commands
 class Cmds(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-
-    # @app_commands.command(name="run_command")
-    # @app_commands.describe(command = "What Python-based command would you like me to run?")
-    # async def run_command(self, interaction: discord.Integration, command: str):
-    #     global reminder_cache
-    #     global reminder_list
-
-    #     log.info("Command Attempted")
-    #     if interaction.user.id != 229709025824997377:
-    #         await interaction.response.send_message("Sorry! This command is reserved for developers!", ephemeral=True)
-    #     try:
-    #         command_output = await eval(command)
-    #     except Exception as e:
-    #         command_output = e
-    #     await interaction.response.send_message(f" ```{command_output}``` ", ephemeral=False)
+        self.confi_db = TinyDB(os.path.join(os.getcwd(), "config.json"))
 
     @app_commands.command(name="index")
     @app_commands.describe(
@@ -64,7 +29,7 @@ class Cmds(commands.Cog):
     )
     async def index(self, interaction: discord.Interaction, history: int):
         await interaction.response.send_message(f"Hello, {interaction.user.mention}, I have started indexing. The index may take a while depending on the specified message history!", ephemeral=True)
-        await tools.index_emoji(guild=interaction.guild, limit=history)
+        await self.bot.emojihandler.index(guild=interaction.guild, limit=history)
 
     @app_commands.command(name="ping")
     async def ping(self, interaction: discord.Interaction):
@@ -80,8 +45,8 @@ class Cmds(commands.Cog):
     async def logging(self, interaction: discord.Interaction, set_logging_state: bool, bot_logging: bool, unicode_logging: bool):
         try:
             await interaction.response.send_message(f"Hello, {interaction.user.mention}, I have updated the configuration for your server.", ephemeral=True)
-            if conf.contains(User.guild == interaction.guild_id):
-                conf.update({'logging': set_logging_state, 'bots': bot_logging, 'unicode': unicode_logging}, User.guild == interaction.guild_id)
+            if self.confi_db.contains(where('guild') == interaction.guild_id):
+                self.confi_db.update({'logging': set_logging_state, 'bots': bot_logging, 'unicode': unicode_logging}, Query().guild == interaction.guild_id)
         except Exception as e:
             log.warning(e)
 
@@ -89,6 +54,7 @@ class Cmds(commands.Cog):
 class StatsCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
+        self.confi_db = TinyDB(os.path.join(os.getcwd(), "config.json"))
     
     @app_commands.command(name="statistics", description="Reports emoji statistics.")
     @app_commands.describe(
@@ -129,14 +95,14 @@ class StatsCog(commands.Cog):
  
     async def stats_init(self, type, interaction, sort_order):
         if type.value == 1:
-            stats = await tools.gen_usr_stats(guild_id=interaction.guild.id, user_id = int(interaction.user.id))
+            stats = await self.bot.emojihandler.gen_usr_stats(guild_id=interaction.guild.id, user_id = int(interaction.user.id))
             stats_sorted = sorted(stats.items(), reverse=sort_order, key=lambda entry: len(entry[1]))
-            guild_logging = bool(conf.get(User.guild == interaction.guild.id)['logging'])
+            guild_logging = bool(self.confi_db.get(where('guild') == interaction.guild.id)['logging'])
             return True, stats_sorted[:10], guild_logging
         elif type.value == 2:
-            stats = await tools.gen_srv_stats(guild_id=interaction.guild.id)
+            stats = await self.bot.emojihandler.gen_srv_stats(guild_id=interaction.guild.id)
             stats_sorted = sorted(stats.items(), reverse=sort_order, key=lambda entry: len(entry[1]))
-            guild_logging = bool(conf.get(User.guild == interaction.guild.id)['logging'])
+            guild_logging = bool(self.confi_db.get(where('guild') == interaction.guild.id)['logging'])
             return False, stats_sorted[:10], guild_logging
 
     async def stats_convert(self, stats, interaction, emoji_type):
@@ -168,12 +134,13 @@ class StatsCog(commands.Cog):
         return result
 
     async def stats_textify(self, stats):
-        return "\n".join([f"{tup[0]} ({tup[1]})" for tup in stats if tup != None]), "\n".join(tup[2] for tup in stats if tup != None)
+        return "\n".join([f"{tup[0]} ({tup[1]})" for tup in stats if tup is not None]), "\n".join(tup[2] for tup in stats if tup is not None)
 
 # New Cog for handling reminders
 class Reminders(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
+        self.remind_db = TinyDB(os.path.join(os.getcwd(), "remind_db.json"))
 
 
     @app_commands.command(name="remind", description="BETA: Reminds you something.")
@@ -188,7 +155,6 @@ class Reminders(commands.Cog):
         end_date = cal.parseDT(datetimeString=date, sourceTime=now, tzinfo=pytz.utc)[0]
 
         if end_date > start_date:
-            rem = 
             await interaction.response.send_message(f"<@{interaction.user.id}>, I will remind you <t:{int(calendar.timegm(end_date.utctimetuple()))}:R>: {name}")
         else:
             await interaction.response.send_message("That time is not valid!", ephemeral=True)
@@ -200,7 +166,7 @@ class Reminders(commands.Cog):
             description="A list of your set reminders.",
             title=f"Reminder list for {interaction.user.name}"
         )
-        r_list = remind_db.search(User.user == interaction.user.id)
+        r_list = self.remind_db.search(where('user') == interaction.user.id)
         r_list.sort(key=lambda r: r["end"], reverse=False)
 
         body1 = "\n".join(str(r["id"]) for r in r_list)

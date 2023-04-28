@@ -4,14 +4,16 @@ import os
 import emoji
 import discord
 from tinydb import Query, TinyDB
-
-from resources import log
+from discord.ext import commands
+import logging
+log = logging.getLogger()
 
 class EmojiHandler():
-    def __init__(self):
+    def __init__(self, bot: commands.Bot):
         # Create a database instance for configurations and a database instance for emojis
         self.confdb = TinyDB(os.path.join(os.getcwd(), "config.json"))
         self.db     = TinyDB(os.path.join(os.getcwd(), "db.json"))
+        self.bot    = bot
 
     async def process(self, message):
         # Find all custom emojis and their names in the message content
@@ -77,3 +79,45 @@ class EmojiHandler():
             for i in emoji.distinct_emoji_list(message.content):
                 emoji_name = emoji.demojize(i)
                 self.db.insert({'guild': message.guild.id, 'user': message.author.id, 'emoji': i, 'emoji_name': emoji_name, 'message_id': message.id})
+
+    async def server_stats(self, guild_id):
+        log.debug(f"Sorting server statistics for {guild_id}")
+        stats = {}
+        for item in self.db:
+            if item['guild'] == guild_id:
+                if item['emoji'] not in stats.keys():
+                    stats[item['emoji']] = []
+                stats[item['emoji']].append(item['user'])
+        return stats
+
+    async def user_stats(self, guild_id, user_id):
+        log.debug(f"Sorting user statistics for {user_id} in {guild_id}")
+        stats = {}
+        for row in self.db.search((Query().user == user_id) & (Query().guild == guild_id)):
+            if row['emoji'] not in stats.keys():
+                stats[row['emoji']] = []
+            stats[row['emoji']].append(row['user'])
+        return stats
+
+    async def index(self, guild: discord.Guild, limit: int):
+        log.debug(f"Started index for {guild.name} --> {limit} messages")
+        for channel in guild.text_channels:
+            try:
+                log.debug(f"Indexing: {guild.name}--->{channel.name}")
+                async for message in channel.history(limit=limit):
+                    if message.author != self.bot.user:
+                        await self.process(message=message)
+            except discord.Forbidden:
+                log.debug(f"The bot does not have permissions to view {channel.name}.")
+            except Exception as e:
+                log.error(e)
+        log.debug(f"Indexing finished for {guild.name}")
+
+    async def remove(self, message):
+        try:
+            self.db.remove(Query().message_id == message.message_id)
+        except Exception as e:
+            log.error(e)
+
+async def setup(bot):
+    bot.emojihandler = EmojiHandler(bot=bot)

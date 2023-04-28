@@ -1,21 +1,18 @@
 # IMPORT DEPENDENCIES
 import asyncio
 import datetime
-import pytz
 import os
 import discord
 from discord.utils import sleep_until
 import hashlib
 
-from resources import log
-
-from datetime import timezone
-from tinydb import TinyDB, Query, where
-
+from tinydb import TinyDB, Query
+import logging
+log = logging.getLogger()
 query = Query()
 
 #### NEW REMINDER SYSTEM ####
-class nReminder():
+class Reminder():
     message_id: str
     user: discord.User
     channel: discord.TextChannel
