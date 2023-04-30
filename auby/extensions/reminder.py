@@ -8,7 +8,7 @@ import hashlib
 
 from tinydb import TinyDB, Query
 import logging
-log = logging.getLogger()
+log = logging.getLogger('auby')
 query = Query()
 
 #### NEW REMINDER SYSTEM ####

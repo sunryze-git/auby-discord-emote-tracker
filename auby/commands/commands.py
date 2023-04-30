@@ -8,6 +8,8 @@ from asyncstdlib import list as alist
 from datetime import timezone
 from tinydb import TinyDB, where, Query
 
+from auby.extensions.emoji import EmojiHandler
+
 import datetime
 import parsedatetime as pdt
 import calendar
@@ -15,7 +17,7 @@ import re
 import os
 import pytz
 import logging
-log = logging.getLogger()
+log = logging.getLogger('auby')
 
 # General multipurpose cog for handling other commands
 class Cmds(commands.Cog):
@@ -55,6 +57,7 @@ class StatsCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.confi_db = TinyDB(os.path.join(os.getcwd(), "config.json"))
+        self.emojihandler = EmojiHandler(bot=bot)
     
     @app_commands.command(name="statistics", description="Reports emoji statistics.")
     @app_commands.describe(
@@ -95,12 +98,12 @@ class StatsCog(commands.Cog):
  
     async def stats_init(self, type, interaction, sort_order):
         if type.value == 1:
-            stats = await self.bot.emojihandler.gen_usr_stats(guild_id=interaction.guild.id, user_id = int(interaction.user.id))
+            stats = await self.bot.emojihandler.user_stats(guild_id=interaction.guild.id, user_id = int(interaction.user.id))
             stats_sorted = sorted(stats.items(), reverse=sort_order, key=lambda entry: len(entry[1]))
             guild_logging = bool(self.confi_db.get(where('guild') == interaction.guild.id)['logging'])
             return True, stats_sorted[:10], guild_logging
         elif type.value == 2:
-            stats = await self.bot.emojihandler.gen_srv_stats(guild_id=interaction.guild.id)
+            stats = await self.bot.emojihandler.server_stats(guild_id=interaction.guild.id)
             stats_sorted = sorted(stats.items(), reverse=sort_order, key=lambda entry: len(entry[1]))
             guild_logging = bool(self.confi_db.get(where('guild') == interaction.guild.id)['logging'])
             return False, stats_sorted[:10], guild_logging

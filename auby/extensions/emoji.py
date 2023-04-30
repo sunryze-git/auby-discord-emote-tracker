@@ -5,8 +5,9 @@ import emoji
 import discord
 from tinydb import Query, TinyDB
 from discord.ext import commands
+
 import logging
-log = logging.getLogger()
+log = logging.getLogger('auby')
 
 class EmojiHandler():
     def __init__(self, bot: commands.Bot):
@@ -103,7 +104,7 @@ class EmojiHandler():
         log.debug(f"Started index for {guild.name} --> {limit} messages")
         for channel in guild.text_channels:
             try:
-                log.debug(f"Indexing: {guild.name}--->{channel.name}")
+                log.debug(f"Indexing: {guild.name} ---> {channel.name}")
                 async for message in channel.history(limit=limit):
                     if message.author != self.bot.user:
                         await self.process(message=message)

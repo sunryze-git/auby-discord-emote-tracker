@@ -3,7 +3,7 @@ import os
 from discord.ext import commands
 from tinydb import TinyDB, where
 import logging
-log = logging.getLogger()
+log = logging.getLogger('auby')
 
 class GuildListener(commands.Cog):
     def __init__(self, bot: commands.Bot):
