@@ -1,17 +1,12 @@
-### IMPORT LIBRARIES
+# IMPORT LIBRARIES
 import discord
 import os
+import logging
+import colorlog
 
 from discord.ext import commands
-from discord.ext import tasks
-from tinydb import TinyDB, Query
 
-from resources.tools import Tools
-from resources.reminder import Reminder
-from resources.emoji import EmojiHandler
-from resources import log
-
-processemote = EmojiHandler()
+from tinydb import TinyDB
 
 #### SECRET TOKEN #####
 token = os.environ.get('TOKEN')
@@ -20,90 +15,64 @@ token = os.environ.get('TOKEN')
 # Setup our Intents
 intents = discord.Intents.default()
 intents.message_content = True
-bot = commands.Bot(command_prefix='$', intents=intents)
 
-# Setup the databases
-db = TinyDB(os.path.join(os.getcwd(), "db.json"))
-conf = TinyDB(os.path.join(os.getcwd(), "config.json"))
-User = Query()
+# Setup Logging
+def setup_logging(logging_level):
+    log = logging.getLogger('auby')
+    log.setLevel(logging_level)
+    format_str = '%(bold_black)s%(asctime)s %(log_color)s%(levelname)-8s %(purple)s%(filename)s%(reset)s %(message)s'
+    date_format = '%Y-%m-%d %H:%M:%S'
+    cformat = f'{format_str}'
+    colors = {
+        'DEBUG': 'green',
+        'INFO': 'cyan',
+        'WARNING': 'yellow',
+        'ERROR': 'red',
+        'CRITICAL': 'red,bg_white',
+    }
+    formatter = colorlog.ColoredFormatter(
+        cformat, date_format, log_colors=colors)
+    stream_handler = logging.StreamHandler()
+    stream_handler.setFormatter(formatter)
+    log.addHandler(stream_handler)
+    return log
 
-# Define a global variable which stores the latest PluralKit-detected message
-latest_pk = ""
+log = setup_logging(logging_level=logging.DEBUG)
 
-# Initialize our Tools class
-tools = Tools(bot=bot, db=db)
+class CustomBot(commands.Bot):
+    async def setup_hook(self):
+        self.reminders = {}
+        self.logger = log
 
-# Sync Commands with Discord
-async def sync_tree():
-    try:
-        await bot.tree.sync()
-        log.info("Commands Synced")
-    except Exception as e:
-        log.warning(f"Failed to sync commands: {e}")
+        self.server_conf    = TinyDB(os.path.join(os.getcwd(), "auby/data/server_conf.json"))
+        self.emoji_conf     = TinyDB(os.path.join(os.getcwd(), "auby/data/emoji_db.json"))
+        self.remind_conf    = TinyDB(os.path.join(os.getcwd(), "auby/data/remind_db.json"))
 
-# Function that runs when the bot is loaded
+        self.logger.info(f"Logging in as {self.user}")
+
+        # Load Extensions
+        for file in os.listdir(os.path.join(os.getcwd(),'auby/extensions')):
+            if not file.startswith("__"):
+                self.logger.info(f"Loaded Extension: {file}")
+                await self.load_extension(f"auby.extensions.{file[:-3]}")
+
+        # Load Listeners
+        for file in os.listdir(os.path.join(os.getcwd(),'auby/listeners')):
+            if not file.startswith("__"):
+                self.logger.info(f"Loaded Extension: {file}")
+                await self.load_extension(f"auby.listeners.{file[:-3]}")
+
+activity = discord.Game(name="OMORI")
+bot = CustomBot(command_prefix='$', intents=intents, activity=activity)
+
+# On_Ready function
 @bot.event
 async def on_ready():
-    await bot.load_extension('commands')
-
-    log.info(f'Bot Login Successful as {bot.user}')
-    await bot.change_presence(activity=discord.Game(name="OMORI"))
-
-    for guild in bot.guilds:
-        if not conf.contains(User.guild == guild.id):
-            log.info(f"Guild with ID {guild.id} was not in the config database. Applying default configuration.")
-            conf.insert({'guild': guild.id, 'logging': False, 'bots': False}) 
-
-    await sync_tree()
-
-# Runs when the bot detects a new guild
-@bot.event
-async def on_guild_join(guild):
-    log.info(f"Bot has joined new server: {guild.name}")
-    conf.insert({'guild': guild.id, 'logging': False, 'bots': False}) 
-
-# Runs when the bot detects a removal from a guild
-@bot.event
-async def on_guild_remove(guild):
-    log.info(f"Bot has been removed from server: {guild.name}")
-    if conf.contains(User.guild == guild.id):
-        conf.remove(User.guild == guild.id)
-
-# Runs when the bot detects a new message
-@bot.event
-async def on_message(message):
-    global latest_pk
-    if message.author == bot.user:
-        return
-
-    if message.webhook_id is not None:
-        latest_pk = message.content
-        return
-            
-    #log.debug(f"IN {message.guild.id} FROM {message.author}-{message.webhook_id}: {message.content}")
-    await processemote.process(message=message)
-
-# Runs when the bot detects a message deletion, regardless if it is in the cache or not
-@bot.event
-async def on_raw_message_delete(message):
-    if message.cached_message is not None:
-        c_message = message.cached_message
-        if latest_pk in c_message.content:
-            return
     try:
-        db.remove(User.message_id == message.message_id)
+        await bot.tree.sync()
+        bot.logger.info("Commands Synced")
     except Exception as e:
-        log.error(e)
+        bot.logger.warning(f"Failed to sync commands: {e}")
 
-# Command which reloads the commands module, WIP: reload resources
-@bot.tree.command(name="reload")
-async def reload(interaction: discord.Interaction):
-    global rc
-    log.info("Reloading Commands!")
-    await bot.reload_extension('commands')
-    from commands import rc
-    await interaction.response.send_message("Bot has been reloaded", ephemeral=True)
-    await sync_tree()
-
-# Starts the bot
-bot.run(token, root_logger=False)
+# Start bot
+bot.run(token)
