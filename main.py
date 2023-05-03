@@ -1,10 +1,12 @@
-### IMPORT LIBRARIES
+# IMPORT LIBRARIES
 import discord
 import os
 import logging
 import colorlog
 
 from discord.ext import commands
+
+from tinydb import TinyDB
 
 #### SECRET TOKEN #####
 token = os.environ.get('TOKEN')
@@ -21,14 +23,15 @@ def setup_logging(logging_level):
     format_str = '%(bold_black)s%(asctime)s %(log_color)s%(levelname)-8s %(purple)s%(filename)s%(reset)s %(message)s'
     date_format = '%Y-%m-%d %H:%M:%S'
     cformat = f'{format_str}'
-    colors={
-            'DEBUG': 'green',
-            'INFO': 'cyan',
-            'WARNING': 'yellow',
-            'ERROR': 'red',
-            'CRITICAL': 'red,bg_white',
-        }
-    formatter = colorlog.ColoredFormatter(cformat, date_format, log_colors=colors)
+    colors = {
+        'DEBUG': 'green',
+        'INFO': 'cyan',
+        'WARNING': 'yellow',
+        'ERROR': 'red',
+        'CRITICAL': 'red,bg_white',
+    }
+    formatter = colorlog.ColoredFormatter(
+        cformat, date_format, log_colors=colors)
     stream_handler = logging.StreamHandler()
     stream_handler.setFormatter(formatter)
     log.addHandler(stream_handler)
@@ -36,18 +39,30 @@ def setup_logging(logging_level):
 
 log = setup_logging(logging_level=logging.DEBUG)
 
-class CustomBot(commands.Bot): 
+class CustomBot(commands.Bot):
     async def setup_hook(self):
         self.reminders = {}
         self.logger = log
 
-        self.logger.info(f"Logging in as {self.user}")
-        await self.load_extension('auby.listeners.guild')
-        await self.load_extension('auby.listeners.message')
-        await self.load_extension('auby.commands.commands')
-        await self.load_extension('auby.extensions.emoji')
+        self.server_conf    = TinyDB(os.path.join(os.getcwd(), "auby/data/server_conf.json"))
+        self.emoji_conf     = TinyDB(os.path.join(os.getcwd(), "auby/data/emoji_db.json"))
+        self.remind_conf    = TinyDB(os.path.join(os.getcwd(), "auby/data/remind_db.json"))
 
-activity=discord.Game(name="OMORI")
+        self.logger.info(f"Logging in as {self.user}")
+
+        # Load Extensions
+        for file in os.listdir(os.path.join(os.getcwd(),'auby/extensions')):
+            if not file.startswith("__"):
+                self.logger.info(f"Loaded Extension: {file}")
+                await self.load_extension(f"auby.extensions.{file[:-3]}")
+
+        # Load Listeners
+        for file in os.listdir(os.path.join(os.getcwd(),'auby/listeners')):
+            if not file.startswith("__"):
+                self.logger.info(f"Loaded Extension: {file}")
+                await self.load_extension(f"auby.listeners.{file[:-3]}")
+
+activity = discord.Game(name="OMORI")
 bot = CustomBot(command_prefix='$', intents=intents, activity=activity)
 
 # On_Ready function
