@@ -158,14 +158,14 @@ class EmojiCmds(commands.Cog):
         if type.value == 1:
             stats = await self.bot.emojihandler.user_stats(guild_id=interaction.guild.id, user_id=int(interaction.user.id))
             stats_sorted = sorted(
-                stats.items(), key=lambda entry: len(entry[1]))
+                stats.items(),reverse=True, key=lambda entry: len(entry[1]))
             guild_logging = bool(self.confi_db.get(
                 where('guild') == interaction.guild.id)['logging'])
             return True, stats_sorted[:10], guild_logging
         elif type.value == 2:
             stats = await self.bot.emojihandler.server_stats(guild_id=interaction.guild.id)
             stats_sorted = sorted(
-                stats.items(), key=lambda entry: len(entry[1]))
+                stats.items(),reverse=True, key=lambda entry: len(entry[1]))
             guild_logging = bool(self.confi_db.get(
                 where('guild') == interaction.guild.id)['logging'])
             return False, stats_sorted[:10], guild_logging
