@@ -21,33 +21,38 @@ query = Query()
 
 #### NEW REMINDER SYSTEM ####
 class Reminder():
-    user: discord.User
-    channel: discord.TextChannel
-    r_name: str
-    end_tme: datetime
-    bot: discord.Client
-    r_id: str
+    ## DO NOT SPECIFY
     task: asyncio.Future
     db = TinyDB(os.path.join(os.getcwd(), "auby/data/remind_db.json"))
 
     def __init__(self, user: discord.User, channel: discord.TextChannel, r_name: str, end_time: datetime, bot: discord.Client, r_id: str):
         self.r_id = r_id
-        if self.r_id == "":
-            data = str(self.user.id)+str(self.r_name)
-            self.r_id = hashlib.blake2s(data.encode('utf-8'), digest_size=8).hexdigest()
+        self.user = user
+        self.channel = channel
+        self.r_name = r_name
+        self.end_time = end_time
+        self.r_id = r_id
+
+        self.bot = bot
+
+        log.info(f"Initializing Reminder {self.r_id}, due {self.end_time}")
         self.task = asyncio.ensure_future(self.await_reminder())
     
     async def await_reminder(self):
         reminder = {"user": self.user.id, "channel_id": self.channel.id, "name": self.r_name, "end": self.end_time.timestamp(), "id": self.r_id}
-        self.db.insert(reminder)
+        if not self.db.contains(Query().id == self.r_id):
+            self.db.insert(reminder)
 
         await sleep_until(self.end_time)
-        await self.send_reminder(reminder=reminder)
+        await self.send_reminder()
 
     async def send_reminder(self):
         log.debug(f"Sending reminder with ID {self.r_id}, named {self.r_name}")
         try:
+            log.info(f"Sending Reminder: {self.r_id}")
             await self.channel.send(f"<@{self.user.id}>, <t:{int(self.end_time.timestamp())}:R>: {self.r_name}")
+            del self.bot.reminders[self.r_id]
+            self.db.remove(query['id'] == self.r_id)
         except (discord.Forbidden, discord.NotFound):
             log.warning(f"Error sending reminder with ID {self.r_id} due to the bot not having permissions to send messages, or the channel doesn't exist. Attempting to send to DM with user.")
             dm = await self.user.create_dm()
@@ -55,46 +60,55 @@ class Reminder():
         except Exception as e:
             log.exception(f"An error occurred while trying to send reminder with ID {self.r_id}.", exc_info=e)
 
-    async def remove(self):
-        self.db.remove(query.id == str(self.r_id))
+    async def stop(self):
+        log.info(f"Stopping reminder {self.r_id}, named {self.r_name}")
         self.task.cancel()
 
 class ReminderTools():
     def __init__(self, bot=discord.Client):
         self.bot = bot
-        self.rdb = bot.remind_conf
+        self.rdb: TinyDB = bot.remind_conf
 
     async def load(self):
-        for row in self.rdb.all():
-            log.info(f"Loading Reminder: {row}")
-            try:
-                user: discord.User = await self.bot.fetch_user(row['user'])
-            except discord.NotFound:
-                user: None = None
-            try:
-                channel: discord.TextChannel = await self.bot.fetch_channel(row['channel_id'])
-            except discord.NotFound:
-                channel: None = None
-            r_name = row['name']
-            end_time = datetime.datetime.fromtimestamp(int(row['end']))
-            r_id = row['id']
-            bot = self.bot
-            
-            _reminder = Reminder(
-                user=user,
-                channel=channel,
-                r_name=r_name,
-                end_time=end_time,
-                r_id=r_id,
-                bot=bot
-            )
+        self.bot.reminders = {}
+        if len(self.rdb.all()) > 0:
+            log.info(f"Loading {len(self.rdb.all())} reminders.")
+            for row in self.rdb.all():
+                try:
+                    user: discord.User = await self.bot.fetch_user(row['user'])
+                except discord.NotFound:
+                    user: None = None
+                try:
+                    channel: discord.TextChannel = await self.bot.fetch_channel(row['channel_id'])
+                except discord.NotFound:
+                    channel: None = None
+                r_name = row['name']
+                end_time = datetime.datetime.fromtimestamp(int(row['end']))
+                r_id = row['id']
+                bot = self.bot
+                
+                _reminder = Reminder(
+                    user=user,
+                    channel=channel,
+                    r_name=r_name,
+                    end_time=end_time,
+                    r_id=r_id,
+                    bot=bot
+                )
 
-            self.bot.reminders[r_id] = _reminder
+                self.bot.reminders[r_id] = _reminder
+        else:
+            log.info("No reminders to load.")
+
+    async def stopall(self):
+        loaded_reminders = dict(self.bot.reminders)
+        for rem in loaded_reminders.values():
+            await rem.stop()
 
 class ReminderCmds(commands.Cog):
     def __init__(self, bot):
         self.bot: commands.Bot = bot
-        self.remind_db = bot.remind_conf
+        self.remind_db = TinyDB(os.path.join(os.getcwd(), "auby/data/remind_db.json"))
 
     @app_commands.command(name="remind", description="BETA: Reminds you something.")
     @app_commands.describe(
@@ -109,16 +123,19 @@ class ReminderCmds(commands.Cog):
                                sourceTime=now, tzinfo=pytz.utc)[0]
 
         if end_date > start_date:
+            data = str(interaction.user.id)+str(name)+str(end_date.timestamp())
+            r_id = hashlib.blake2s(data.encode('utf-8'), digest_size=8).hexdigest()
+
             _reminder = Reminder(
                 user=interaction.user,
                 channel=interaction.channel,
                 r_name=name,
                 end_time=end_date,
-                r_id="",
+                r_id=r_id,
                 bot=self.bot
             )
 
-            self.bot.reminders.append(_reminder)
+            self.bot.reminders[r_id] = _reminder
             await interaction.response.send_message(f"<@{interaction.user.id}>, I will remind you <t:{int(calendar.timegm(end_date.utctimetuple()))}:R>: {name}")
         else:
             await interaction.response.send_message("That time is not valid!", ephemeral=True)
@@ -148,12 +165,20 @@ class ReminderCmds(commands.Cog):
     )
     async def deletereminder(self, interaction: discord.Interaction, id: str):
         await interaction.response.send_message(f"I have deleted your reminder with ID: ``{id}``.", ephemeral=True)
-        await self.reminder.rem
+        self.bot.reminders[id].task.cancel()
+        del self.bot.reminders[id]
+        self.remind_db.remove(query.id == str(id))
+
 
 async def setup(bot: commands.Bot):
     # sourcery skip: instance-method-first-arg-name
     await bot.add_cog(ReminderCmds(bot=bot))
     bot.remindertools = ReminderTools(bot=bot)
+    await bot.remindertools.load()
+
+async def teardown(bot: commands.Bot):
+    log.info(f"Unloading Reminders Extension")
+    await bot.remindertools.stopall()
 
 
 #### REMINDER SYSTEM ####
